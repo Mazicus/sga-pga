@@ -1,0 +1,75 @@
+I. Shared Pool
+
+Le shared pool est un composant du system global area (SGA) au sein de l'instance de la base de données. Il est responsable du caching de différents types de données de programme. Par exemple, le shared pool stocke le SQL analysé, le code PL/SQL, les paramètres système et les informations du data dictionary. Presque toutes les opérations qui se produisent dans la base de données impliquent le shared pool. Par exemple, si un utilisateur exécute une instruction SQL, alors Oracle AI Database accède au shared pool.
+
+La library cache est une structure mémoire du shared pool qui stocke le code SQL et PL/SQL exécutable. Ce cache contient les zones shared SQL et PL/SQL ainsi que des structures de contrôle, comme les locks et les handles de library cache. Lorsqu'une instruction SQL est exécutée, la base de données tente de réutiliser du code précédemment exécuté. Si une représentation analysée d'une instruction SQL existe dans la library cache et peut être partagée, la base de données réutilise le code. Cette action est connue sous le nom de soft parse ou library cache hit. Sinon, la base de données doit construire une nouvelle version exécutable du code de l'application, ce qui est connu sous le nom de hard parse ou library cache miss.
+
+Enqueues : structures de coordination interne utilisées pour gérer les mécanismes de locking et synchroniser l'accès aux ressources entre processus concurrents.
+Latches : primitives de sérialisation bas niveau, sans file d'attente, utilisées pour protéger les structures mémoire internes des conditions de course (race conditions) concurrentes.
+
+1. Voir la répartition détaillée de la mémoire dans le Shared Pool
+SELECT name, bytes / 1024 / 1024 AS size_mb
+FROM v$sgastat
+WHERE pool = 'shared pool'
+ORDER BY bytes DESC;
+
+2. Vérifier l'efficacité du Library Cache (Taux de succès / Hit Ratio)
+SELECT namespace, gets, gethits,
+       ROUND(gethitratio * 100, 2) AS hit_ratio_pct
+FROM v$librarycache;
+
+3. Consulter le conseil d'optimisation du Shared Pool (v$shared_pool_advice)
+SELECT shared_pool_size_for_est AS est_size_mb,
+       shared_pool_size_factor AS size_factor,
+       estd_lc_time_saved AS time_saved_sec
+FROM v$shared_pool_advice;
+
+
+II. Database Buffer Cache :
+c'est la région de la RAM responsable de la conservation de copies des data blocks qui ont été lus depuis les datafiles physiques sur disque
+
+pourquoi est-ce essentiel ? le disk I/O est historiquement le plus gros bottleneck de performance dans tout système de base de données, le buffer cache vise à maximiser le cache hit ratio
+cache hit : les données demandées y sont présentes
+cache miss : les données demandées n'y sont pas présentes
+
+dirty block (blocs qui existent en mémoire principale mais pas sur le disque) : le SGA ne les met pas à jour automatiquement, il met à jour le buffer mémoire et le journalise, puis DBWn vide de manière asynchrone ces dirty blocks du buffer cache vers les datafiles sur disque
+
+Le mécanisme de gestion interne a 2 composants principaux :
+- LRU : divise les blocs en région hot/cold (données fréquemment accédées / données obsolètes ciblées pour l'éviction quand de l'espace est requis)
+- check point queue : une liste ordonnée chronologiquement qui suit tous les dirty blocks, par leur redo byte address (RBA), guidant DBWn sur quels data blocks modifiés écrire en premier sur disque
+
+$ show parameter sga_target
+$ select name, block_size, current_size from v$buffer_pool
+
+on ne peut pas modifier la taille du bloc par défaut d'une base de données existante
+-> créer un pool secondaire de 50 Mo spécifiquement pour les blocs de 16 Ko
+$ alter system set db_16k_cache_size = 50M SCOPE = both|spfile|memory;
+
+III. Redo Log Buffer
+zone de mémoire circulaire (lorsque le pointeur d'écriture atteint la limite physique il reboucle au début) située dans la SGA, il consigne de manière séquentielle toutes les modifications (DML, DDL) apportées avant même qu'elles ne soient écrites dans les fichiers de données principaux
+
+$ SHOW PARAMETER log_buffer;
+
+IV. Everything together :
+Définitions préalables :
+
+    LGWR (Log Writer) : C'est un processus d'arrière-plan du moteur Oracle dont la fonction exclusive est de lire en continu le contenu du Redo Log Buffer en mémoire vive pour l'écrire de manière persistante sur le stockage.
+
+    Fichiers de redo physiques (Physical Redo Log Files) : Ce sont des fichiers binaires stockés sur le disque (stockage non volatil) qui conservent de façon permanente et séquentielle l'historique complet de toutes les modifications (redo entries) générées par les transactions.
+
+La séquence technique intégrant la Checkpoint Queue (Write-Ahead Logging) :
+
+    Modification en mémoire et indexation :
+    Lorsqu'une transaction modifie des données, le bloc cible dans le Database Buffer Cache est mis à jour (il devient un dirty block). Simultanément, un enregistrement de cette modification est inscrit séquentiellement dans le Redo Log Buffer en mémoire, et ce dirty block est positionné dans la Checkpoint Queue de manière strictement chronologique selon son identifiant de positionnement (Redo Byte Address - RBA).
+
+    Écriture par le processus LGWR sur les fichiers physiques :
+    Le processus d'arrière-plan LGWR vide le contenu du Redo Log Buffer de la mémoire vers les fichiers de redo physiques sur le disque.
+
+    Autorisation d'écriture des blocs de données (DBWn) :
+    C'est la règle fondamentale du Write-Ahead Logging : le processus DBWn n'a pas le droit d'écrire un dirty block du Database Buffer Cache vers les fichiers de données principaux (datafiles) tant que le journal de redo correspondant n'a pas été entièrement sécurisé sur disque par LGWR à l'étape précédente.
+
+    Pilotage par la Checkpoint Queue :
+    Lorsque DBWn procède à l'écriture des blocs vers les disques, il parcourt la Checkpoint Queue du plus ancien au plus récent (selon le RBA). Cela permet à Oracle de savoir précisément quels dirty blocks doivent être purgés en priorité pour que l'espace des fichiers de redo physiques puisse être recyclé en toute sécurité.
+
+    Garantie de l'intégrité transactionnelle :
+    Si le système s'arrête brutalement, Oracle utilise les fichiers de redo physiques et la Checkpoint Queue pour exécuter la récupération après crash (Crash Recovery), en rejouant les modifications validées ou en annulant les transactions incomplètes.
