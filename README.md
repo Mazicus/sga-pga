@@ -23,18 +23,27 @@ Presque toutes les opérations de la base de données impliquent le shared pool.
 
 ![Shared Pool](shared-pool.jpeg)
 
-### La Library Cache
+### Library Cache (Shared SQL and PL/SQL Area)
 
 La **library cache** est une structure mémoire du shared pool qui stocke le code SQL et PL/SQL exécutable. Elle contient les zones *shared SQL* et *PL/SQL*, ainsi que des structures de contrôle comme les **locks** et les **handles** de library cache.
 
-Lorsqu'une instruction SQL est exécutée, la base de données tente de réutiliser du code précédemment exécuté :
+Lorsqu'une instruction SQL est exécutée, le texte de la requête est analysé syntaxiquement et sémantiquement. Oracle vérifie si un plan d'exécution identique existe déjà en mémoire (évitant un **Hard Parse**) ou en génère un nouveau. Lorsqu'une instruction SQL est exécutée, la base de données tente de réutiliser du code précédemment exécuté :
 
 | Situation | Résultat |
 |---|---|
 | Une représentation analysée existe dans la library cache et peut être partagée | **soft parse** (library cache **hit**) — le code est réutilisé |
 | Aucune représentation réutilisable n'existe | **hard parse** (library cache **miss**) — une nouvelle version exécutable doit être construite |
 
-### Enqueues et Latches
+### Data Dictionary Cache
+
+Le **data dictionary cache** stocke les définitions des objets de la base (tables, index, vues, colonnes…). Lors de l'analyse d'une requête, le moteur consulte ce cache pour valider instantanément les métadonnées des objets ciblés (existence de la table, structures des colonnes, validation des contraintes d'intégrité et des privilèges de l'utilisateur) sans recourir à des lectures physiques sur disque.
+
+### Structures de Concurrence (Latches et Enqueues)
+
+Des verrous de bas niveau et des files d'attente internes gèrent l'accès simultané pour empêcher toute corruption de structure pendant l'analyse.
+
+- **Enqueues** : structures de coordination interne utilisées pour gérer les mécanismes de *locking* et synchroniser l'accès aux ressources entre processus concurrents.
+- **Latches** : primitives de sérialisation bas niveau, sans file d'attente, utilisées pour protéger les structures mémoire internes des *race conditions* concurrentes.
 
 - **Enqueues** : structures de coordination interne utilisées pour gérer les mécanismes de *locking* et synchroniser l'accès aux ressources entre processus concurrents.
 - **Latches** : primitives de sérialisation bas niveau, sans file d'attente, utilisées pour protéger les structures mémoire internes des *race conditions* concurrentes.
