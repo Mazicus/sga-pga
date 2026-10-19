@@ -12,12 +12,7 @@ Le **SGA (System Global Area)** est une région de mémoire partagée au sein de
 
 ## I. Shared Pool
 
-Le **shared pool** est un composant du SGA responsable du caching de différents types de données de programme. Il stocke notamment :
-
-- le SQL analysé (parsed SQL)
-- le code **PL/SQL**
-- les paramètres système
-- les informations du **data dictionary**
+Le **shared pool** est un composant du SGA responsable du caching de différents types de données de programme. Il stocke notamment : le parsed **SQL**, **PL/SQL**, les paramètres système et les informations du **data dictionary**.
 
 Presque toutes les opérations de la base de données impliquent le shared pool. Par exemple, lorsqu'un utilisateur exécute une instruction SQL, Oracle accède au shared pool.
 
@@ -36,24 +31,14 @@ Lorsqu'une instruction SQL est exécutée, le texte de la requête est analysé 
 
 ### Data Dictionary Cache
 
-Le **data dictionary cache** stocke les définitions des objets de la base (tables, index, vues, colonnes…). Lors de l'analyse d'une requête, le moteur consulte ce cache pour valider instantanément les métadonnées des objets ciblés (existence de la table, structures des colonnes, validation des contraintes d'intégrité et des privilèges de l'utilisateur) sans recourir à des lectures physiques sur disque.
-
-### Structures de Concurrence (Latches et Enqueues)
-
-Des verrous de bas niveau et des files d'attente internes gèrent l'accès simultané pour empêcher toute corruption de structure pendant l'analyse.
-
-- **Enqueues** : structures de coordination interne utilisées pour gérer les mécanismes de *locking* et synchroniser l'accès aux ressources entre processus concurrents.
-- **Latches** : primitives de sérialisation bas niveau, sans file d'attente, utilisées pour protéger les structures mémoire internes des *race conditions* concurrentes.
-
-- **Enqueues** : structures de coordination interne utilisées pour gérer les mécanismes de *locking* et synchroniser l'accès aux ressources entre processus concurrents.
-- **Latches** : primitives de sérialisation bas niveau, sans file d'attente, utilisées pour protéger les structures mémoire internes des *race conditions* concurrentes.
+Le **data dictionary cache** stocke les définitions des objets de la base (tables, index, vues, colonnes…). Lors de l'analyse d'une requête, le moteur consulte ce cache pour valider les métadonnées des objets ciblés (existence de la table, structures des colonnes, validation des contraintes d'intégrité et des privilèges de l'utilisateur) sans recourir à des lectures physiques sur disque.
 
 ### Requêtes utiles
 
 **1. Voir la répartition détaillée de la mémoire dans le Shared Pool**
 
 ```sql
-SELECT name, bytes / 1024 / 1024 AS size_mb
+SELECT *
 FROM v$sgastat
 WHERE pool = 'shared pool'
 ORDER BY bytes DESC;
@@ -62,18 +47,8 @@ ORDER BY bytes DESC;
 **2. Vérifier l'efficacité du Library Cache (Hit Ratio)**
 
 ```sql
-SELECT namespace, gets, gethits,
-       ROUND(gethitratio * 100, 2) AS hit_ratio_pct
+SELECT namespace, ROUND(gethitratio * 100, 2) AS hit_ratio
 FROM v$librarycache;
-```
-
-**3. Consulter le conseil d'optimisation du Shared Pool (`v$shared_pool_advice`)**
-
-```sql
-SELECT shared_pool_size_for_est AS est_size_mb,
-       shared_pool_size_factor AS size_factor,
-       estd_lc_time_saved AS time_saved_sec
-FROM v$shared_pool_advice;
 ```
 
 ---
@@ -88,7 +63,7 @@ Le **Database Buffer Cache** est la région de la RAM responsable de la conserva
 
 Le **disk I/O** est historiquement le plus gros *bottleneck* de performance dans tout système de base de données. Le buffer cache vise à maximiser le **cache hit ratio** :
 
-- **cache hit** : les données demandées y sont présentes ;
+- **cache hit** : les données demandées y sont présentes.
 - **cache miss** : les données demandées n'y sont pas présentes.
 
 ### Dirty Blocks
@@ -123,7 +98,7 @@ SELECT name, block_size, current_size FROM v$buffer_pool;
 
 ## III. Redo Log Buffer
 
-Le **Redo Log Buffer** est une zone de mémoire **circulaire** (lorsque le pointeur d'écriture atteint la limite physique, il reboucle au début) située dans le SGA. Il consigne de manière séquentielle toutes les modifications (**DML**, **DDL**) apportées, avant même qu'elles ne soient écrites dans les fichiers de données principaux.
+Le **Redo Log Buffer** est une zone de mémoire **circulaire** (lorsque le pointeur d'écriture atteint la limite physique, il reboucle au début) située dans le SGA. Il consigne de manière séquentielle toutes les modifications (**Data Manipulation Language**, **Data Definition Language**) apportées, avant même qu'elles ne soient écrites dans les fichiers de données principaux.
 
 ```sql
 SHOW PARAMETER log_buffer;
@@ -161,29 +136,3 @@ Lorsque DBWn procède à l'écriture des blocs vers les disques, il parcourt la 
 Si le système s'arrête brutalement, Oracle utilise les fichiers de redo physiques et la Checkpoint Queue pour exécuter la **récupération après crash** (*Crash Recovery*), en rejouant les modifications validées ou en annulant les transactions incomplètes.
 
 ---
-
-## Résumé du flux
-
-```
-Transaction (DML/DDL)
-        │
-        ▼
-Database Buffer Cache          Redo Log Buffer
-  (dirty block + RBA)    +     (redo entry)
-        │                           │
-        │                           ▼
-        │                         LGWR ──► Physical Redo Log Files (disque)
-        │
-        ▼
-   Checkpoint Queue ──► DBWn ──► Datafiles (disque)
-   (ordre RBA)         (uniquement si redo sécurisé sur disque)
-```
-
-## Fichiers
-
-| Fichier | Description |
-|---|---|
-| `notes.txt` | Notes de présentation (source) |
-| `sga.jpeg` | Vue d'ensemble du SGA |
-| `shared-pool.jpeg` | Schéma du Shared Pool |
-| `db-buffer-cache.jpeg` | Schéma du Database Buffer Cache |
