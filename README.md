@@ -123,23 +123,23 @@ Avant qu'une modification ne touche le **Database Buffer Cache** ou le **Redo Lo
 - **Data Dictionary Cache** : le moteur consulte ce cache pour valider instantanément les métadonnées (existence des tables, structures des colonnes, contraintes d'intégrité et privilèges de l'utilisateur) sans recourir à des lectures physiques sur disque.
 - **Structures de concurrence (latches et enqueues)** : des mécanismes de verrouillage bas niveau sécurisent l'accès aux structures internes pour éviter toute corruption de données lors des accès concurrents.
 
-**1. Modification en mémoire et indexation**
+**Modification en mémoire et indexation**
 
 Lorsqu'une transaction modifie des données, le bloc cible dans le **Database Buffer Cache** est mis à jour (il devient un *dirty block*). Simultanément, un enregistrement de cette modification est inscrit séquentiellement dans le **Redo Log Buffer**, et ce dirty block est positionné dans la **Checkpoint Queue** de manière strictement chronologique selon son *Redo Byte Address* (**RBA**).
 
-**2. Écriture par LGWR sur les fichiers physiques**
+**Écriture par LGWR sur les fichiers physiques**
 
 Le processus **LGWR** vide le contenu du Redo Log Buffer de la mémoire vers les *fichiers de redo physiques* sur le disque.
 
-**3. Autorisation d'écriture des blocs de données (DBWn)**
+**Autorisation d'écriture des blocs de données (DBWn)**
 
 C'est la règle fondamentale du **Write-Ahead Logging** : le processus **DBWn** n'a pas le droit d'écrire un dirty block du Database Buffer Cache vers les *datafiles* tant que le journal de redo correspondant n'a pas été entièrement sécurisé sur disque par LGWR à l'étape précédente.
 
-**4. Pilotage par la Checkpoint Queue**
+**Pilotage par la Checkpoint Queue**
 
 Lorsque DBWn procède à l'écriture des blocs vers les disques, il parcourt la **Checkpoint Queue** du plus ancien au plus récent (selon le RBA). Cela permet à Oracle de savoir précisément quels dirty blocks doivent être purgés en priorité pour que l'espace des fichiers de redo physiques puisse être recyclé en toute sécurité.
 
-**5. Garantie de l'intégrité transactionnelle**
+**Garantie de l'intégrité transactionnelle**
 
 Si le système s'arrête brutalement, Oracle utilise les fichiers de redo physiques et la Checkpoint Queue pour exécuter la **récupération après crash** (*Crash Recovery*), en rejouant les modifications validées ou en annulant les transactions incomplètes.
 
