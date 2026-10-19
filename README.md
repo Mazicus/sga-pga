@@ -19,14 +19,14 @@ La base de données correspond aux fichiers persistants : **datafiles**, **contr
 
 | État | Opérations et disponibilité |
 |---|---|
-| Arrêt — SHUTDOWN | L’instance est arrêtée et la base est fermée |
+| Arrêt : SHUTDOWN | L’instance est arrêtée et la base est fermée |
 | NOMOUNT | Lecture des paramètres, allocation de la SGA et démarrage des processus d’arrière-plan ; les control files ne sont pas encore ouverts |
 | MOUNT | Ouverture des control files et identification des datafiles et des online redo log files ; la base n’est pas encore ouverte aux utilisateurs |
 | OPEN | Ouverture des datafiles et des online redo log files ; la base devient accessible selon son mode d’ouverture |
 
 ## Vue d’ensemble : SGA et PGA
 
-| Critère | SGA — System Global Area | PGA — Program Global Area |
+| Critère | SGA : System Global Area | PGA : Program Global Area |
 |---|---|---|
 | Portée | Mémoire partagée de l’instance | Mémoire privée d’un processus Oracle |
 | Rôle | Partager les blocs de données, le code SQL/PLSQL et les informations nécessaires à l’instance | Conserver l’état privé du processus et les zones de travail SQL |
@@ -40,7 +40,7 @@ Le **Shared Pool** est un composant du SGA qui met en cache le code **SQL** et *
 
 ![Shared Pool](shared-pool.jpeg)
 
-### Library Cache — Shared SQL and PL/SQL Area
+### Library Cache : Shared SQL and PL/SQL Area
 
 La **Library Cache** stocke le code SQL et PL/SQL exécutable, les zones SQL partagées et des structures de contrôle comme les **locks** et les **handles**.
 
@@ -96,12 +96,12 @@ Le cache hit ratio doit être interprété avec la charge de travail et les temp
 
 ### Dirty Blocks
 
-Un **dirty block** est un bloc modifié en mémoire dont la version correspondante n’a pas encore été écrite dans un datafile. Les processus serveur modifient les buffers et génèrent le redo. Le processus **DBWn — Database Writer** écrit les blocs modifiés vers les datafiles de manière asynchrone. Un `COMMIT` ne déclenche pas systématiquement l’écriture de ces blocs dans les datafiles.
+Un **dirty block** est un bloc modifié en mémoire dont la version correspondante n’a pas encore été écrite dans un datafile. Les processus serveur modifient les buffers et génèrent le redo. Le processus **DBWn : Database Writer** écrit les blocs modifiés vers les datafiles de manière asynchrone. Un `COMMIT` ne déclenche pas systématiquement l’écriture de ces blocs dans les datafiles.
 
 ### Mécanisme de gestion interne
 
-- **Gestion de type LRU — Least Recently Used** : contribue au choix des buffers réutilisables, avec des régions chaudes et froides. Une donnée froide n’est pas nécessairement obsolète.
-- **Checkpoint Queue** : suit les buffers modifiés selon leur position de redo, notamment le **Redo Byte Address — RBA**, afin de guider les écritures nécessaires à la progression des checkpoints.
+- **Gestion de type LRU : Least Recently Used** : contribue au choix des buffers réutilisables, avec des régions chaudes et froides. Une donnée froide n’est pas nécessairement obsolète.
+- **Checkpoint Queue** : suit les buffers modifiés selon leur position de redo, notamment le **Redo Byte Address : RBA**, afin de guider les écritures nécessaires à la progression des checkpoints.
 
 ### Requêtes utiles
 
@@ -130,13 +130,13 @@ Le **Redo Log Buffer** est une zone de mémoire **circulaire** du SGA. Il contie
 SHOW PARAMETER log_buffer;
 ```
 
-## IV. Le flux complet — Write-Ahead Logging
+## IV. Le flux complet : Write-Ahead Logging
 
 ### Définitions préalables
 
-- **LGWR — Log Writer** : écrit le redo du Redo Log Buffer vers les online redo log files, notamment lors des validations et selon les autres déclencheurs d’écriture d’Oracle.
+- **LGWR : Log Writer** : écrit le redo du Redo Log Buffer vers les online redo log files, notamment lors des validations et selon les autres déclencheurs d’écriture d’Oracle.
 - **Online redo log files** : fichiers persistants organisés en groupes et réutilisés de manière cyclique. Ils ne constituent pas un historique permanent complet. En mode `ARCHIVELOG`, les groupes remplis peuvent être archivés avant leur réutilisation.
-- **DBWn — Database Writer** : écrit les buffers modifiés vers les datafiles.
+- **DBWn : Database Writer** : écrit les buffers modifiés vers les datafiles.
 - **Checkpoint** : fait progresser le point à partir duquel la récupération devra reprendre et implique l’écriture de blocs modifiés ainsi que la mise à jour des informations de checkpoint.
 
 ### Séquence technique
@@ -156,7 +156,7 @@ SHOW PARAMETER log_buffer;
 | Streams Pool | Mémoire associée aux fonctionnalités qui l’utilisent, selon la version et la configuration |
 | Fixed SGA | Informations internes de contrôle et de coordination de l’instance |
 
-## VI. PGA — Program Global Area
+## VI. PGA : Program Global Area
 
 La **PGA** fournit la mémoire privée nécessaire à un processus Oracle. Elle contient notamment des informations de contrôle, des zones SQL privées et les espaces de travail nécessaires à certaines opérations SQL.
 
@@ -170,7 +170,7 @@ La **PGA** fournit la mémoire privée nécessaire à un processus Oracle. Elle 
 
 Si une opération ne dispose pas d’une zone de travail suffisante en mémoire, elle peut utiliser le tablespace temporaire, ce qui augmente les entrées/sorties.
 
-### UGA — User Global Area
+### UGA : User Global Area
 
 L’**UGA** contient l’état de la session, notamment les variables et les informations de connexion. Son emplacement dépend du mode de connexion :
 
@@ -183,8 +183,8 @@ L’UGA n’est donc pas systématiquement un composant de la PGA.
 
 | Mode | Principe | Paramètres principaux |
 |---|---|---|
-| AMM — Automatic Memory Management | Ajuste la répartition de mémoire entre SGA et PGA, ainsi que les composants gérés, dans les environnements qui prennent en charge ce mode | `MEMORY_TARGET`, `MEMORY_MAX_TARGET` |
-| ASMM — Automatic Shared Memory Management | Ajuste les composants automatiquement gérés de la SGA ; la PGA se configure séparément | `SGA_TARGET`, `SGA_MAX_SIZE`, et `PGA_AGGREGATE_TARGET` pour la cible PGA |
+| AMM : Automatic Memory Management | Ajuste la répartition de mémoire entre SGA et PGA, ainsi que les composants gérés, dans les environnements qui prennent en charge ce mode | `MEMORY_TARGET`, `MEMORY_MAX_TARGET` |
+| ASMM : Automatic Shared Memory Management | Ajuste les composants automatiquement gérés de la SGA ; la PGA se configure séparément | `SGA_TARGET`, `SGA_MAX_SIZE`, et `PGA_AGGREGATE_TARGET` pour la cible PGA |
 
 Les paramètres de cible expriment des objectifs de gestion ; ils ne doivent pas tous être interprétés comme des limites strictes. Le choix dépend de la version, de la plateforme et de la configuration Oracle.
 
