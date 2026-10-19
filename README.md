@@ -115,6 +115,14 @@ SHOW PARAMETER log_buffer;
 
 ### La séquence technique
 
+**Étape préliminaire : analyse, compilation et résolution (Shared Pool)**
+
+Avant qu'une modification ne touche le **Database Buffer Cache** ou le **Redo Log Buffer**, le processus serveur traite la requête dans le **Shared Pool** :
+
+- **Library Cache** : le texte de la requête SQL ou du bloc PL/SQL subit une analyse syntaxique et sémantique. Le moteur vérifie si un plan d'exécution identique est déjà stocké en mémoire (évitant ainsi un coûteux *Hard Parse*).
+- **Data Dictionary Cache** : le moteur consulte ce cache pour valider instantanément les métadonnées (existence des tables, structures des colonnes, contraintes d'intégrité et privilèges de l'utilisateur) sans recourir à des lectures physiques sur disque.
+- **Structures de concurrence (latches et enqueues)** : des mécanismes de verrouillage bas niveau sécurisent l'accès aux structures internes pour éviter toute corruption de données lors des accès concurrents.
+
 **1. Modification en mémoire et indexation**
 
 Lorsqu'une transaction modifie des données, le bloc cible dans le **Database Buffer Cache** est mis à jour (il devient un *dirty block*). Simultanément, un enregistrement de cette modification est inscrit séquentiellement dans le **Redo Log Buffer**, et ce dirty block est positionné dans la **Checkpoint Queue** de manière strictement chronologique selon son *Redo Byte Address* (**RBA**).
