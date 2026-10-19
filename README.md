@@ -185,9 +185,9 @@ L’UGA n’est donc pas systématiquement un composant de la PGA.
 |---|---|---|
 | AMM : Automatic Memory Management | Ajuste la répartition de mémoire entre SGA et PGA, ainsi que les composants gérés, dans les environnements qui prennent en charge ce mode | `MEMORY_TARGET`, `MEMORY_MAX_TARGET` |
 | ASMM : Automatic Shared Memory Management | Ajuste les composants automatiquement gérés de la SGA ; la PGA se configure séparément | `SGA_TARGET`, `SGA_MAX_SIZE`, et `PGA_AGGREGATE_TARGET` pour la cible PGA |
-![AMM vs ASM](vii-amm-asmm.png)
 Les paramètres de cible expriment des objectifs de gestion ; ils ne doivent pas tous être interprétés comme des limites strictes. Le choix dépend de la version, de la plateforme et de la configuration Oracle.
 
+![AMM vs ASM](vii-amm-asmm.png)
 ```sql
 SHOW PARAMETER memory_target;
 SHOW PARAMETER memory_max_target;
@@ -195,3 +195,4 @@ SHOW PARAMETER sga_target;
 SHOW PARAMETER sga_max_size;
 SHOW PARAMETER pga_aggregate_target;
 ```
+![Schema finale](qui-possede-quoi-croquis.png)
