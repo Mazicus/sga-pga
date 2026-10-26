@@ -1,41 +1,67 @@
 # Oracle : SGA vs PGA
 
-Notes de présentation sur la mémoire de la base de données Oracle, avec focus sur les composants du **SGA (System Global Area)** et le rôle de la mémoire dans les performances.
+Notes de présentation sur l’architecture d’une base Oracle, la mémoire de l’instance et son rôle dans les performances.
 
-## Vue d'ensemble du SGA
+## Architecture : instance et base de données
 
-Le **SGA (System Global Area)** est une région de mémoire partagée au sein de l'instance de la base de données Oracle. Elle regroupe plusieurs composants clés : le **Shared Pool**, le **Database Buffer Cache**, le **Redo Log Buffer**, et d'autres (Large Pool, Java Pool, Streams Pool…).
+Une **instance Oracle** est l’environnement d’exécution qui permet de gérer et d’accéder à une base de données. Elle comprend la **SGA** et les **processus d’arrière-plan**. Les processus serveur utilisent également une mémoire privée : la **PGA**.
 
-![Vue d'ensemble du SGA](sga.jpeg)
+La base de données correspond aux fichiers persistants : **datafiles**, **control files** et **online redo log files**. Dans une architecture multitenant, la **CDB** est la base conteneur.
 
----
+| Notion | Définition |
+|---|---|
+| Instance | Structures mémoire et processus Oracle en cours d’exécution |
+| Session | Connexion logique d’un utilisateur à Oracle |
+| Processus serveur | Exécute les appels et les instructions SQL pour les sessions |
+| Processus d’arrière-plan | Assure notamment l’écriture des blocs et du redo, ainsi que les checkpoints |
+
+### Étapes de démarrage
+
+| État | Opérations et disponibilité |
+|---|---|
+| Arrêt : SHUTDOWN | L’instance est arrêtée et la base est fermée |
+| NOMOUNT | Lecture des paramètres, allocation de la SGA et démarrage des processus d’arrière-plan ; les control files ne sont pas encore ouverts |
+| MOUNT | Ouverture des control files et identification des datafiles et des online redo log files ; la base n’est pas encore ouverte aux utilisateurs |
+| OPEN | Ouverture des datafiles et des online redo log files ; la base devient accessible selon son mode d’ouverture |
+
+## Vue d’ensemble : SGA et PGA
+
+| Critère | SGA : System Global Area | PGA : Program Global Area |
+|---|---|---|
+| Portée | Mémoire partagée de l’instance | Mémoire privée d’un processus Oracle |
+| Rôle | Partager les blocs de données, le code SQL/PLSQL et les informations nécessaires à l’instance | Conserver l’état privé du processus et les zones de travail SQL |
+| Composants principaux | Shared Pool, Database Buffer Cache, Redo Log Buffer, Large Pool, Java Pool, Streams Pool selon la version, Fixed SGA | SQL Private Area, SQL Work Areas et autres allocations privées |
+
+![Vue d’ensemble du SGA](sga.jpeg)
 
 ## I. Shared Pool
 
-Le **shared pool** est un composant du SGA responsable du caching de différents types de données de programme. Il stocke notamment : le parsed **SQL**, **PL/SQL**, les paramètres système et les informations du **data dictionary**.
-
-Presque toutes les opérations de la base de données impliquent le shared pool. Par exemple, lorsqu'un utilisateur exécute une instruction SQL, Oracle accède au shared pool.
+Le **Shared Pool** est un composant du SGA qui met en cache le code **SQL** et **PL/SQL** analysé, les métadonnées du **data dictionary** et différentes structures de contrôle. Presque toutes les opérations de la base impliquent le Shared Pool : lorsqu’un utilisateur exécute une instruction SQL, Oracle y recherche notamment une représentation réutilisable.
 
 ![Shared Pool](shared-pool.jpeg)
 
-### Library Cache (Shared SQL and PL/SQL Area)
+### Library Cache : Shared SQL and PL/SQL Area
 
-La **library cache** est une structure mémoire du shared pool qui stocke le code SQL et PL/SQL exécutable. Elle contient les zones *shared SQL* et *PL/SQL*, ainsi que des structures de contrôle comme les **locks** et les **handles** de library cache.
+La **Library Cache** stocke le code SQL et PL/SQL exécutable, les zones SQL partagées et des structures de contrôle comme les **locks** et les **handles**.
 
-Lorsqu'une instruction SQL est exécutée, le texte de la requête est analysé syntaxiquement et sémantiquement. Oracle vérifie si un plan d'exécution identique existe déjà en mémoire (évitant un **Hard Parse**) ou en génère un nouveau. Lorsqu'une instruction SQL est exécutée, la base de données tente de réutiliser du code précédemment exécuté :
+Lors de l’analyse d’une instruction SQL, Oracle recherche un curseur compatible et partageable. La réutilisation dépend notamment du texte SQL, des objets référencés et de l’environnement d’exécution ; disposer d’un plan identique ne suffit pas à lui seul.
 
 | Situation | Résultat |
 |---|---|
-| Une représentation analysée existe dans la library cache et peut être partagée | **soft parse** (library cache **hit**) — le code est réutilisé |
-| Aucune représentation réutilisable n'existe | **hard parse** (library cache **miss**) — une nouvelle version exécutable doit être construite |
+| Une représentation analysée existe et peut être partagée | **Soft parse** : réutilisation du code existant |
+| Aucune représentation réutilisable n’existe | **Hard parse** : construction d’une nouvelle représentation exécutable, avec optimisation |
 
 ### Data Dictionary Cache
 
-Le **data dictionary cache** stocke les définitions des objets de la base (tables, index, vues, colonnes…). Lors de l'analyse d'une requête, le moteur consulte ce cache pour valider les métadonnées des objets ciblés (existence de la table, structures des colonnes, validation des contraintes d'intégrité et des privilèges de l'utilisateur) sans recourir à des lectures physiques sur disque.
+Le **Data Dictionary Cache**, également appelé **Row Cache**, stocke les métadonnées des objets : tables, index, vues, colonnes, privilèges, etc. Oracle le consulte notamment pour résoudre les objets et vérifier les autorisations pendant l’analyse. Une information déjà présente en cache évite de relire les données correspondantes du dictionnaire sur disque.
+
+### Result Cache
+
+Lorsqu’il est activé et applicable, le **Server Result Cache**, situé dans le Shared Pool, conserve des résultats de requêtes SQL ou de fonctions PL/SQL pour permettre leur réutilisation.
 
 ### Requêtes utiles
 
-**1. Voir la répartition détaillée de la mémoire dans le Shared Pool**
+Voir la répartition détaillée de la mémoire dans le Shared Pool :
 
 ```sql
 SELECT *
@@ -44,38 +70,38 @@ WHERE pool = 'shared pool'
 ORDER BY bytes DESC;
 ```
 
-**2. Vérifier l'efficacité du Library Cache (Hit Ratio)**
+Examiner le taux de succès des recherches dans la Library Cache :
 
 ```sql
 SELECT namespace, ROUND(gethitratio * 100, 2) AS hit_ratio
 FROM v$librarycache;
 ```
 
----
+Ce ratio constitue un indicateur ; il ne suffit pas à lui seul pour diagnostiquer les performances ou mesurer le taux de soft parse.
 
 ## II. Database Buffer Cache
 
-Le **Database Buffer Cache** est la région de la RAM responsable de la conservation de copies des **data blocks** lus depuis les *datafiles* physiques sur disque.
+Le **Database Buffer Cache** conserve en RAM des copies des **data blocks** lus depuis les **datafiles**.
 
 ![Database Buffer Cache](db-buffer-cache.jpeg)
 
 ### Pourquoi est-ce essentiel ?
 
-Le **disk I/O** est historiquement le plus gros *bottleneck* de performance dans tout système de base de données. Le buffer cache vise à maximiser le **cache hit ratio** :
+Les lectures physiques peuvent représenter un coût important. Le cache permet de réutiliser les blocs déjà présents en mémoire :
 
-- **cache hit** : les données demandées y sont présentes.
-- **cache miss** : les données demandées n'y sont pas présentes.
+- **Cache hit** : le bloc demandé est présent en cache.
+- **Cache miss** : le bloc doit être obtenu depuis le stockage pour cet accès.
+
+Le cache hit ratio doit être interprété avec la charge de travail et les temps d’attente ; toutes les lectures ne passent pas nécessairement par le buffer cache.
 
 ### Dirty Blocks
 
-Les **dirty blocks** (blocs présents en mémoire principale mais pas encore à jour sur le disque) ne sont pas automatiquement écrits par le SGA : celui-ci met à jour le buffer mémoire et journalise les modifications, puis le processus **DBWn** vide de manière asynchrone ces dirty blocks du buffer cache vers les *datafiles* sur disque.
+Un **dirty block** est un bloc modifié en mémoire dont la version correspondante n’a pas encore été écrite dans un datafile. Les processus serveur modifient les buffers et génèrent le redo. Le processus **DBWn : Database Writer** écrit les blocs modifiés vers les datafiles de manière asynchrone. Un `COMMIT` ne déclenche pas systématiquement l’écriture de ces blocs dans les datafiles.
 
 ### Mécanisme de gestion interne
 
-Deux composants principaux :
-
-- **LRU (Least Recently Used)** : divise les blocs en régions *hot* / *cold* (données fréquemment accédées / données obsolètes ciblées pour l'éviction quand de l'espace est requis).
-- **Checkpoint Queue** : une liste ordonnée chronologiquement qui suit tous les dirty blocks, par leur *Redo Byte Address* (**RBA**), guidant DBWn sur quels data blocks modifiés écrire en premier sur disque.
+- **Gestion de type LRU : Least Recently Used** : contribue au choix des buffers réutilisables, avec des régions chaudes et froides. Une donnée froide n’est pas nécessairement obsolète.
+- **Checkpoint Queue** : suit les buffers modifiés selon leur position de redo, notamment le **Redo Byte Address : RBA**, afin de guider les écritures nécessaires à la progression des checkpoints.
 
 ### Requêtes utiles
 
@@ -84,63 +110,89 @@ SHOW PARAMETER sga_target;
 ```
 
 ```sql
-SELECT name, block_size, current_size FROM v$buffer_pool;
+SELECT name, block_size, current_size
+FROM v$buffer_pool;
 ```
 
-> **Note** : on ne peut pas modifier la taille de bloc par défaut d'une base de données existante.
-> Solution : créer un pool secondaire spécifiquement pour une autre taille de bloc, par exemple :
->
-> ```sql
-> ALTER SYSTEM SET db_16k_cache_size = 50M SCOPE = both|spfile|memory;
-> ```
+La taille de bloc par défaut d’une base existante ne se modifie pas directement. Pour utiliser des tablespaces d’une autre taille de bloc prise en charge, on peut configurer un cache correspondant. Exemple, si 16 Ko n’est pas la taille de bloc standard :
 
----
+```sql
+ALTER SYSTEM SET db_16k_cache_size = 50M SCOPE = BOTH;
+```
+
+`SCOPE` prend une seule valeur : `MEMORY`, `SPFILE` ou `BOTH`. Le choix dépend du mode de démarrage et de la persistance souhaitée ; `BOTH` nécessite un SPFILE.
 
 ## III. Redo Log Buffer
 
-Le **Redo Log Buffer** est une zone de mémoire **circulaire** (lorsque le pointeur d'écriture atteint la limite physique, il reboucle au début) située dans le SGA. Il consigne de manière séquentielle toutes les modifications (**Data Manipulation Language**, **Data Definition Language**) apportées, avant même qu'elles ne soient écrites dans les fichiers de données principaux.
+Le **Redo Log Buffer** est une zone de mémoire **circulaire** du SGA. Il contient les entrées de redo qui décrivent les changements nécessaires à la récupération des blocs. Les opérations DML et DDL génèrent généralement du redo ; certaines opérations peuvent bénéficier d’une journalisation réduite selon leur mode et leur contexte.
 
 ```sql
 SHOW PARAMETER log_buffer;
 ```
 
----
-
-## IV. Everything together : le flux complet (Write-Ahead Logging)
+## IV. Le flux complet : Write-Ahead Logging
 
 ### Définitions préalables
 
-- **LGWR (Log Writer)** : processus d'arrière-plan du moteur Oracle dont la fonction exclusive est de lire en continu le contenu du **Redo Log Buffer** en mémoire vive pour l'écrire de manière persistante sur le stockage.
-- **Fichiers de redo physiques (Physical Redo Log Files)** : fichiers binaires stockés sur le disque (stockage non volatil) qui conservent de façon permanente et séquentielle l'historique complet de toutes les modifications (*redo entries*) générées par les transactions.
+- **LGWR : Log Writer** : écrit le redo du Redo Log Buffer vers les online redo log files, notamment lors des validations et selon les autres déclencheurs d’écriture d’Oracle.
+- **Online redo log files** : fichiers persistants organisés en groupes et réutilisés de manière cyclique. Ils ne constituent pas un historique permanent complet. En mode `ARCHIVELOG`, les groupes remplis peuvent être archivés avant leur réutilisation.
+- **DBWn : Database Writer** : écrit les buffers modifiés vers les datafiles.
+- **Checkpoint** : fait progresser le point à partir duquel la récupération devra reprendre et implique l’écriture de blocs modifiés ainsi que la mise à jour des informations de checkpoint.
 
-### La séquence technique
+### Séquence technique
 
-**Étape préliminaire : analyse, compilation et résolution (Shared Pool)**
+1. **Modification en mémoire.** Le processus serveur modifie les blocs dans le Database Buffer Cache et génère les entrées correspondantes dans le Redo Log Buffer. Les buffers modifiés sont suivis pour les écritures et les checkpoints.
+2. **Écriture du redo.** LGWR écrit les entrées de redo dans les online redo log files. Lors d’un `COMMIT` avec attente de durabilité, le redo de la transaction et son enregistrement de validation doivent être écrits avant le retour de confirmation au client.
+3. **Write-Ahead Logging.** Avant que DBWn écrive un bloc modifié dans un datafile, le redo nécessaire à la récupération de ce bloc doit avoir été écrit sur le stockage par LGWR.
+4. **Écriture des blocs et progression du checkpoint.** DBWn écrit les blocs selon les besoins de buffers libres et de checkpoints. La Checkpoint Queue aide à suivre les modifications anciennes ; les écritures ne se réduisent pas à un parcours strictement séquentiel unique.
+5. **Récupération après arrêt brutal.** Oracle repart des informations persistantes de checkpoint et applique le redo nécessaire, puis utilise l’undo pour annuler les transactions non validées. La Checkpoint Queue étant en mémoire, elle ne sert pas de source persistante après un crash.
 
-Avant qu'une modification ne touche le **Database Buffer Cache** ou le **Redo Log Buffer**, le processus serveur traite la requête dans le **Shared Pool** :
+## V. Autres composants du SGA
 
-- **Library Cache** : le texte de la requête SQL ou du bloc PL/SQL subit une analyse syntaxique et sémantique. Le moteur vérifie si un plan d'exécution identique est déjà stocké en mémoire (évitant ainsi un coûteux *Hard Parse*).
-- **Data Dictionary Cache** : le moteur consulte ce cache pour valider instantanément les métadonnées (existence des tables, structures des colonnes, contraintes d'intégrité et privilèges de l'utilisateur) sans recourir à des lectures physiques sur disque.
-- **Structures de concurrence (latches et enqueues)** : des mécanismes de verrouillage bas niveau sécurisent l'accès aux structures internes pour éviter toute corruption de données lors des accès concurrents.
+| Composant | Rôle |
+|---|---|
+| Large Pool | Allocations importantes, notamment pour les serveurs partagés, l’exécution parallèle et certaines opérations de sauvegarde/restauration |
+| Java Pool | Mémoire utilisée par la machine virtuelle Java intégrée à Oracle |
+| Streams Pool | Mémoire associée aux fonctionnalités qui l’utilisent, selon la version et la configuration |
+| Fixed SGA | Informations internes de contrôle et de coordination de l’instance |
 
-**Modification en mémoire et indexation**
+## VI. PGA : Program Global Area
 
-Lorsqu'une transaction modifie des données, le bloc cible dans le **Database Buffer Cache** est mis à jour (il devient un *dirty block*). Simultanément, un enregistrement de cette modification est inscrit séquentiellement dans le **Redo Log Buffer**, et ce dirty block est positionné dans la **Checkpoint Queue** de manière strictement chronologique selon son *Redo Byte Address* (**RBA**).
+La **PGA** fournit la mémoire privée nécessaire à un processus Oracle. Elle contient notamment des informations de contrôle, des zones SQL privées et les espaces de travail nécessaires à certaines opérations SQL.
 
-**Écriture par LGWR sur les fichiers physiques**
+### Composants et usages
 
-Le processus **LGWR** vide le contenu du Redo Log Buffer de la mémoire vers les *fichiers de redo physiques* sur le disque.
+| Composant | Contenu ou rôle |
+|---|---|
+| SQL Work Areas | Tris, hash joins, agrégations et opérations bitmap, par exemple certaines combinaisons `AND` / `OR` |
+| Private SQL Area | Valeurs des variables de liaison, état d’exécution et informations de progression d’un curseur |
+| Autres allocations privées | Structures nécessaires au fonctionnement du processus |
 
-**Autorisation d'écriture des blocs de données (DBWn)**
+Si une opération ne dispose pas d’une zone de travail suffisante en mémoire, elle peut utiliser le tablespace temporaire, ce qui augmente les entrées/sorties.
 
-C'est la règle fondamentale du **Write-Ahead Logging** : le processus **DBWn** n'a pas le droit d'écrire un dirty block du Database Buffer Cache vers les *datafiles* tant que le journal de redo correspondant n'a pas été entièrement sécurisé sur disque par LGWR à l'étape précédente.
+### UGA : User Global Area
 
-**Pilotage par la Checkpoint Queue**
+L’**UGA** contient l’état de la session, notamment les variables et les informations de connexion. Son emplacement dépend du mode de connexion :
 
-Lorsque DBWn procède à l'écriture des blocs vers les disques, il parcourt la **Checkpoint Queue** du plus ancien au plus récent (selon le RBA). Cela permet à Oracle de savoir précisément quels dirty blocks doivent être purgés en priorité pour que l'espace des fichiers de redo physiques puisse être recyclé en toute sécurité.
+- **Serveur dédié** : l’UGA se trouve dans la PGA du processus serveur.
+- **Serveur partagé** : l’UGA se trouve dans la SGA, généralement dans le Large Pool lorsqu’il est configuré, sinon dans le Shared Pool.
 
-**Garantie de l'intégrité transactionnelle**
+L’UGA n’est donc pas systématiquement un composant de la PGA.
 
-Si le système s'arrête brutalement, Oracle utilise les fichiers de redo physiques et la Checkpoint Queue pour exécuter la **récupération après crash** (*Crash Recovery*), en rejouant les modifications validées ou en annulant les transactions incomplètes.
+## VII. Gestion automatique de la mémoire
 
----
+| Mode | Principe | Paramètres principaux |
+|---|---|---|
+| AMM : Automatic Memory Management | Ajuste la répartition de mémoire entre SGA et PGA, ainsi que les composants gérés, dans les environnements qui prennent en charge ce mode | `MEMORY_TARGET`, `MEMORY_MAX_TARGET` |
+| ASMM : Automatic Shared Memory Management | Ajuste les composants automatiquement gérés de la SGA ; la PGA se configure séparément | `SGA_TARGET`, `SGA_MAX_SIZE`, et `PGA_AGGREGATE_TARGET` pour la cible PGA |
+Les paramètres de cible expriment des objectifs de gestion ; ils ne doivent pas tous être interprétés comme des limites strictes. Le choix dépend de la version, de la plateforme et de la configuration Oracle.
+
+![AMM vs ASM](vii-amm-asmm.png)
+```sql
+SHOW PARAMETER memory_target;
+SHOW PARAMETER memory_max_target;
+SHOW PARAMETER sga_target;
+SHOW PARAMETER sga_max_size;
+SHOW PARAMETER pga_aggregate_target;
+```
+![Schema finale](qui-possede-quoi-croquis.png)
